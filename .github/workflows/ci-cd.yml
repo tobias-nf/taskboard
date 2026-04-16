@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - main
+      - develop
     paths:
       - ".github/workflows/ci-cd.yml"
       - "taskboard-api/**"
@@ -37,10 +38,35 @@ jobs:
         working-directory: taskboard-api
         run: go test ./...
 
-  build-and-push:
-    name: Build And Push Images
+  resolve-env:
+    name: Resolve Environment
     if: github.event_name != 'pull_request'
-    needs: api-tests
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      domain: ${{ steps.env.outputs.domain }}
+      ecs_cluster: ${{ steps.env.outputs.ecs_cluster }}
+      image_tag_suffix: ${{ steps.env.outputs.image_tag_suffix }}
+    steps:
+      - name: Determine environment from branch
+        id: env
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "environment=prod" >> "$GITHUB_OUTPUT"
+            echo "domain=taskboard.commitment-tracker-aiops-sandbox.site" >> "$GITHUB_OUTPUT"
+            echo "ecs_cluster=taskboard-prod-cluster" >> "$GITHUB_OUTPUT"
+            echo "image_tag_suffix=" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=dev" >> "$GITHUB_OUTPUT"
+            echo "domain=dev.taskboard.commitment-tracker-aiops-sandbox.site" >> "$GITHUB_OUTPUT"
+            echo "ecs_cluster=taskboard-dev-cluster" >> "$GITHUB_OUTPUT"
+            echo "image_tag_suffix=-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-push:
+    name: Build And Push Images (${{ needs.resolve-env.outputs.environment }})
+    if: github.event_name != 'pull_request'
+    needs: [api-tests, resolve-env]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,7 +74,8 @@ jobs:
     env:
       AWS_REGION: eu-central-1
       AWS_ROLE_TO_ASSUME: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
-      TASKBOARD_DOMAIN: taskboard.commitment-tracker-aiops-sandbox.site
+      TASKBOARD_DOMAIN: ${{ needs.resolve-env.outputs.domain }}
+      ENVIRONMENT: ${{ needs.resolve-env.outputs.environment }}
 
     steps:
       - name: Check out repository
@@ -75,10 +102,12 @@ jobs:
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
+          TAG_SUFFIX: ${{ needs.resolve-env.outputs.image_tag_suffix }}
         run: |
           set -euo pipefail
 
-          short_tag="${IMAGE_TAG::12}"
+          short_tag="${IMAGE_TAG::12}${TAG_SUFFIX}"
+          latest_tag="latest${TAG_SUFFIX}"
 
           build_and_push() {
             local repository="$1"
@@ -87,22 +116,24 @@ jobs:
 
             docker build --platform linux/amd64 "$@" \
               -t "${REGISTRY}/${repository}:${short_tag}" \
-              -t "${REGISTRY}/${repository}:latest" \
+              -t "${REGISTRY}/${repository}:${latest_tag}" \
               "${context}"
 
             docker push "${REGISTRY}/${repository}:${short_tag}"
-            docker push "${REGISTRY}/${repository}:latest"
+            docker push "${REGISTRY}/${repository}:${latest_tag}"
           }
 
           build_and_push "taskboard/api" "taskboard-api"
           build_and_push \
             "taskboard/dashboard" \
             "taskboard-app" \
-            --build-arg "NEXT_PUBLIC_TASKBOARD_API_URL=https://${TASKBOARD_DOMAIN}/api/v1"
+            --build-arg "NEXT_PUBLIC_TASKBOARD_API_URL=https://${TASKBOARD_DOMAIN}/api/v1" \
+            --build-arg "NEXT_PUBLIC_TASKBOARD_AUTH_URL=https://${TASKBOARD_DOMAIN}/auth"
+
   deploy:
-    name: Deploy To ECS
+    name: Deploy To ECS (${{ needs.resolve-env.outputs.environment }})
     if: github.event_name != 'pull_request'
-    needs: build-and-push
+    needs: [build-and-push, resolve-env]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -110,8 +141,8 @@ jobs:
     env:
       AWS_REGION: eu-central-1
       AWS_ROLE_TO_ASSUME: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
-      ECS_CLUSTER: taskboard-prod-cluster
-      ECS_SERVICES: taskboard-prod-api taskboard-prod-dashboard
+      ECS_CLUSTER: ${{ needs.resolve-env.outputs.ecs_cluster }}
+      ENVIRONMENT: ${{ needs.resolve-env.outputs.environment }}
 
     steps:
       - name: Validate AWS role configuration
@@ -130,7 +161,7 @@ jobs:
       - name: Force ECS deployments
         run: |
           set -euo pipefail
-          for service in ${ECS_SERVICES}; do
+          for service in "taskboard-${ENVIRONMENT}-api" "taskboard-${ENVIRONMENT}-dashboard"; do
             aws ecs update-service \
               --cluster "${ECS_CLUSTER}" \
               --service "${service}" \
@@ -141,4 +172,4 @@ jobs:
         run: |
           aws ecs wait services-stable \
             --cluster "${ECS_CLUSTER}" \
-            --services ${ECS_SERVICES}
+            --services "taskboard-${ENVIRONMENT}-api" "taskboard-${ENVIRONMENT}-dashboard"

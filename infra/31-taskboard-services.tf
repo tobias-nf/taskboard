@@ -94,7 +94,7 @@ resource "aws_ecs_task_definition" "api" {
   container_definitions = jsonencode([
     {
       name      = "api"
-      image     = "${aws_ecr_repository.api.repository_url}:latest"
+      image     = "${local.ecr_api_url}:latest${local.is_prod ? "" : "-dev"}"
       essential = true
 
       portMappings = [
@@ -151,7 +151,7 @@ resource "aws_ecs_task_definition" "dashboard" {
   container_definitions = jsonencode([
     {
       name      = "dashboard"
-      image     = "${aws_ecr_repository.dashboard.repository_url}:latest"
+      image     = "${local.ecr_dashboard_url}:latest${local.is_prod ? "" : "-dev"}"
       essential = true
 
       portMappings = [

@@ -1,14 +1,14 @@
 # --- RDS Postgres ---
 
 resource "aws_db_subnet_group" "main" {
-  name       = "hive-prod-db-subnets" # Pinned — renaming would recreate RDS
+  name       = "hive-${var.environment}-db-subnets"
   subnet_ids = aws_subnet.private[*].id
 
   tags = { Name = "${local.name_prefix}-db-subnets" }
 }
 
 resource "aws_db_instance" "main" {
-  identifier     = "hive-prod-postgres" # Pinned — renaming would recreate RDS
+  identifier     = "hive-${var.environment}-postgres"
   engine         = "postgres"
   engine_version = "16"
   instance_class = var.db_instance_class

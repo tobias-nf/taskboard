@@ -23,11 +23,11 @@ output "s3_bucket_name" {
 }
 
 output "ecr_api_url" {
-  value = aws_ecr_repository.api.repository_url
+  value = local.ecr_api_url
 }
 
 output "ecr_dashboard_url" {
-  value = aws_ecr_repository.dashboard.repository_url
+  value = local.ecr_dashboard_url
 }
 
 output "route53_nameservers" {

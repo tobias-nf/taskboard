@@ -35,7 +35,8 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:${var.github_actions_repository}:ref:refs/heads/${var.github_actions_deploy_branch}",
+        for branch in var.github_actions_deploy_branches :
+        "repo:${var.github_actions_repository}:ref:refs/heads/${branch}"
       ]
     }
   }
@@ -74,8 +75,8 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "ecr:UploadLayerPart",
     ]
     resources = [
-      aws_ecr_repository.api.arn,
-      aws_ecr_repository.dashboard.arn,
+      local.ecr_api_arn,
+      local.ecr_dashboard_arn,
     ]
   }
 

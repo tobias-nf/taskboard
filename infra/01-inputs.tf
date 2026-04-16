@@ -28,10 +28,10 @@ variable "github_actions_repository" {
   default     = ""
 }
 
-variable "github_actions_deploy_branch" {
-  description = "Git branch allowed to assume the GitHub Actions deploy role."
-  type        = string
-  default     = "main"
+variable "github_actions_deploy_branches" {
+  description = "Git branches allowed to assume the GitHub Actions deploy role."
+  type        = list(string)
+  default     = ["main", "develop"]
 }
 
 variable "grafana_enabled" {
