@@ -1,6 +1,13 @@
-# Taskboard IronClaw Skill
+# Taskboard IronClaw Skills
 
-IronClaw skill for task management with local-first storage and background sync to the Taskboard REST API.
+Two IronClaw skills for task management with local-first storage and cloud sync to the Taskboard API.
+
+## Skills
+
+| File | Skill | Description |
+|------|-------|-------------|
+| `SKILL.md` | `taskboard` | Core task management — signal detection, task CRUD, digest, cloud sync |
+| `MEETINGS.md` | `taskboard-meetings` | Meeting transcript → action items → deduplicated tasks with approval |
 
 ## Relationship to IronClaw Skills
 
@@ -16,9 +23,10 @@ See all available IronClaw skills: https://github.com/nearai/ironclaw/tree/stagi
 
 ## Install
 
-Copy `SKILL.md` to your IronClaw skills directory:
+Copy both skills to your IronClaw skills directory:
 ```bash
 cp SKILL.md /path/to/ironclaw/skills/taskboard/SKILL.md
+cp MEETINGS.md /path/to/ironclaw/skills/taskboard-meetings/SKILL.md
 ```
 
 Then say "setup taskboard" to initialize. The setup flow will:
