@@ -8,6 +8,8 @@ Agent Task Management — the shared control plane. Manages agent registration, 
 
 - `taskboard-api/` — Go REST API with embedded MCP server at `/mcp/sse`
 - `taskboard-app/` — Next.js frontend
+- `taskboard-slack/` — Slack app (Jarvis) — /task slash command, draft approvals, @mention threads, DM chat
+- `fireflies-bridge/` — Meeting action-item extraction from Fireflies transcripts
 
 **Docs:**
 - `taskboard-docs/spec.md` — full specification
@@ -19,7 +21,7 @@ Agent Task Management — the shared control plane. Manages agent registration, 
 
 **Auth:** Google OAuth for dashboard login (@near.foundation only), API keys for MCP/programmatic access. The middleware accepts both JWT session tokens and `hive_sk_*` API keys as Bearer tokens. Three agent types: `user` (humans/bots), `service` (system integrations — elevated task access, no platform management), and `admin`.
 
-The MCP server is the primary integration point. Agents authenticate with their API key as a Bearer token.
+The MCP server is the primary integration point. Agents authenticate with their API key as a Bearer token. The Slack app uses direct REST with `X-Act-As` impersonation headers.
 
 **Task statuses:** draft, pending, in_progress, blocked, review, completed, failed, cancelled. No "accepted" status.
 
@@ -43,6 +45,13 @@ The `.env` file at the repo root configures all services. Key variables:
 - `FRONTEND_URL` — where the API redirects after login (default: `localhost:4001`)
 - `NEXT_PUBLIC_TASKBOARD_API_URL` / `NEXT_PUBLIC_TASKBOARD_AUTH_URL` — frontend→API connection (default: `localhost:4000`)
 
+**Fireflies bridge** requires an ngrok tunnel for webhook delivery during local dev:
+```bash
+ngrok http 14002
+# Then register the ngrok URL in Fireflies: https://<ngrok-url>/webhooks/fireflies
+# Current tunnel: https://unintelligent-celsa-preambitious.ngrok-free.dev -> http://localhost:14002
+```
+
 **Migrations** run automatically on API startup (idempotent). To add a new migration: create the SQL file in `taskboard-api/migrations/`, add the embed + entry in `embed.go`.
 
 ## infra/
@@ -62,10 +71,12 @@ Deployment scripts: `deploy-images.sh` (build + push to ECR + ECS update).
 Taskboard (Task API + MCP Server + Agent Registry + Postgres)
   │
   ├── Claude Code / Claude Desktop (via MCP)
-  └── Dashboard (Next.js web UI)
+  ├── Dashboard (Next.js web UI)
+  ├── Jarvis Slack App (direct REST + Claude agent)
+  └── Fireflies Bridge (meeting → task extraction)
 
 Platform Infra (infra/)
-  ├── ECS Cluster (API, Dashboard)
+  ├── ECS Cluster (API, Dashboard, Slack, Bridge)
   ├── RDS Postgres
   ├── ALB / CloudFront / Route 53
   ├── S3 (attachments)

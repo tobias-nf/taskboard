@@ -1,0 +1,69 @@
+{
+  "display_information": {
+    "name": "Jarvis",
+    "description": "Your AI task assistant — approvals, priorities, and natural language commands.",
+    "background_color": "#1a1a2e",
+    "long_description": "Jarvis is your AI-powered task assistant in Slack.\n\nFeatures:\n- Draft task approvals: review and approve action items before they reach assignees\n- /task command: interact with your tasks using natural language\n- @Jarvis in threads: create tasks from conversation context\n- Notifications: get notified when tasks are assigned, completed, or need attention"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Jarvis",
+      "always_online": true
+    },
+    "app_home": {
+      "home_tab_enabled": false,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "shortcuts": [
+      {
+        "name": "Create Task",
+        "type": "message",
+        "callback_id": "create_task_from_message",
+        "description": "Create a Taskboard task from this message"
+      }
+    ],
+    "slash_commands": [
+      {
+        "command": "/task",
+        "url": "https://taskboard-slack.nearintents.org/slack/commands",
+        "description": "Interact with your Taskboard tasks",
+        "usage_hint": "[what are my priorities? | mark T-XXX as done | create: ...]",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "commands",
+        "chat:write",
+        "users:read",
+        "users:read.email",
+        "im:read",
+        "im:write",
+        "im:history",
+        "channels:history",
+        "groups:history",
+        "reactions:write",
+        "app_mentions:read"
+      ]
+    }
+  },
+  "settings": {
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://taskboard-slack.nearintents.org/slack/interactions"
+    },
+    "event_subscriptions": {
+      "request_url": "https://taskboard-slack.nearintents.org/slack/events",
+      "bot_events": [
+        "message.im",
+        "app_mention"
+      ]
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}

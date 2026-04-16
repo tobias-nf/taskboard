@@ -48,6 +48,9 @@ services:
       DATABASE_URL: postgres://postgres:dev@taskboard-db:5432/taskboard?sslmode=disable
       CORS_ORIGIN: "*"
       TASKBOARD_ADMIN_API_KEY: ${TASKBOARD_ADMIN_API_KEY}
+      TASKBOARD_ENSURE_AGENT_1: "hive_sk_taskboard-slack_localdev|Jarvis|service|Taskboard Slack app — approvals and /task commands"
+      TASKBOARD_ENSURE_AGENT_2: "hive_sk_fireflies-bridge_localdev|Fireflies Bridge|service|Meeting action-item extraction from Fireflies transcripts"
+      TASKBOARD_ENSURE_AGENT_3: ${TASKBOARD_ENSURE_AGENT_3:-}
       S3_ENDPOINT: taskboard-minio:9000
       S3_ACCESS_KEY: hive
       S3_SECRET_KEY: hivesecret
@@ -86,6 +89,41 @@ services:
       NEXT_PUBLIC_DEV_MODE: "true"
     ports:
       - "4001:4001"
+    depends_on:
+      - taskboard-api
+    networks:
+      - taskboard-network
+
+  taskboard-slack:
+    build: ./taskboard-slack
+    restart: unless-stopped
+    command: python socket_mode.py
+    environment:
+      TASKBOARD_URL: http://taskboard-api:4000/api/v1
+      TASKBOARD_API_KEY: hive_sk_taskboard-slack_localdev
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      APP_AGENT_ID: taskboard-slack
+      ADMIN_SLACK_ID: ${ADMIN_SLACK_ID:-}
+    depends_on:
+      - taskboard-api
+    networks:
+      - taskboard-network
+
+  fireflies-bridge:
+    build: ./fireflies-bridge
+    restart: unless-stopped
+    environment:
+      FIREFLIES_API_KEY: ${FIREFLIES_API_KEY}
+      FIREFLIES_WEBHOOK_SECRET: ${FIREFLIES_WEBHOOK_SECRET:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      TASKBOARD_URL: http://taskboard-api:4000/api/v1
+      TASKBOARD_API_KEY: hive_sk_fireflies-bridge_localdev
+      BRIDGE_AGENT_ID: fireflies-bridge
+      SLACK_APP_AGENT_ID: taskboard-slack
+    ports:
+      - "14002:8000"
     depends_on:
       - taskboard-api
     networks:

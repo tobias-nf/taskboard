@@ -1,0 +1,28 @@
+[project]
+name = "fireflies-bridge"
+version = "0.1.0"
+description = "Fireflies meeting transcripts -> Taskboard action items"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "httpx>=0.28",
+    "anthropic>=0.52",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.11",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
