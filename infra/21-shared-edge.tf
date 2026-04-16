@@ -137,6 +137,25 @@ resource "aws_cloudfront_distribution" "main" {
     max_ttl     = 0
   }
 
+  # /auth/* → ALB (no caching, forward everything for OAuth flow)
+  ordered_cache_behavior {
+    path_pattern           = "/auth/*"
+    target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+
+    forwarded_values {
+      query_string = true
+      headers      = ["*"]
+      cookies { forward = "all" }
+    }
+
+    default_ttl = 0
+    min_ttl     = 0
+    max_ttl     = 0
+  }
+
   # /mcp/* → ALB (no caching, forward auth and SSE headers)
   ordered_cache_behavior {
     path_pattern           = "/mcp/*"
