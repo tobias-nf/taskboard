@@ -7,7 +7,7 @@ locals {
 }
 
 resource "aws_secretsmanager_secret" "taskboard_api" {
-  name = "taskboard-api/config"
+  name = "taskboard-${var.environment}-api/config"
   tags = { Name = "${local.name_prefix}-taskboard-api-secrets" }
 }
 

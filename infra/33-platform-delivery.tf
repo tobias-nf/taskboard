@@ -2,8 +2,9 @@ locals {
   github_actions_enabled = trimspace(var.github_actions_repository) != ""
 }
 
+# OIDC provider — one per account, managed by prod only
 resource "aws_iam_openid_connect_provider" "github_actions" {
-  count = local.github_actions_enabled ? 1 : 0
+  count = local.github_actions_enabled && local.is_prod ? 1 : 0
 
   url = "https://token.actions.githubusercontent.com"
 
@@ -14,6 +15,19 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   }
 }
 
+data "aws_iam_openid_connect_provider" "github_actions" {
+  count = local.github_actions_enabled && !local.is_prod ? 1 : 0
+  url   = "https://token.actions.githubusercontent.com"
+}
+
+locals {
+  oidc_provider_arn = local.is_prod ? (
+    local.github_actions_enabled ? aws_iam_openid_connect_provider.github_actions[0].arn : ""
+  ) : (
+    local.github_actions_enabled ? data.aws_iam_openid_connect_provider.github_actions[0].arn : ""
+  )
+}
+
 data "aws_iam_policy_document" "github_actions_assume_role" {
   count = local.github_actions_enabled ? 1 : 0
 
@@ -22,7 +36,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github_actions[0].arn]
+      identifiers = [local.oidc_provider_arn]
     }
 
     condition {
