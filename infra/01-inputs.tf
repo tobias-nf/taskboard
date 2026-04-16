@@ -102,9 +102,12 @@ variable "taskboard_admin_api_key" {
 }
 
 variable "taskboard_api_secrets" {
-  description = "Preferred grouped Taskboard API secrets input for tfvars. Overrides taskboard_admin_api_key when set."
+  description = "Taskboard API secrets stored in Secrets Manager."
   type = object({
     TASKBOARD_ADMIN_API_KEY = string
+    GOOGLE_CLIENT_ID        = optional(string, "")
+    GOOGLE_CLIENT_SECRET    = optional(string, "")
+    SESSION_SECRET          = optional(string, "dev-secret-change-me")
   })
   sensitive = true
   default   = null

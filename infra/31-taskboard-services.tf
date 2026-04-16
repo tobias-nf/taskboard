@@ -106,6 +106,9 @@ resource "aws_ecs_task_definition" "api" {
 
       secrets = [
         { name = "TASKBOARD_ADMIN_API_KEY", valueFrom = "${aws_secretsmanager_secret.taskboard_api.arn}:TASKBOARD_ADMIN_API_KEY::" },
+        { name = "GOOGLE_CLIENT_ID", valueFrom = "${aws_secretsmanager_secret.taskboard_api.arn}:GOOGLE_CLIENT_ID::" },
+        { name = "GOOGLE_CLIENT_SECRET", valueFrom = "${aws_secretsmanager_secret.taskboard_api.arn}:GOOGLE_CLIENT_SECRET::" },
+        { name = "SESSION_SECRET", valueFrom = "${aws_secretsmanager_secret.taskboard_api.arn}:SESSION_SECRET::" },
       ]
 
       environment = [
@@ -115,6 +118,9 @@ resource "aws_ecs_task_definition" "api" {
         { name = "S3_BUCKET", value = aws_s3_bucket.main.id },
         { name = "S3_REGION", value = var.aws_region },
         { name = "CORS_ORIGIN", value = "https://${var.domain_name}" },
+        { name = "GOOGLE_REDIRECT_URI", value = "https://${var.domain_name}/auth/google/callback" },
+        { name = "FRONTEND_URL", value = "https://${var.domain_name}/app" },
+        { name = "ALLOWED_EMAIL_DOMAIN", value = "near.foundation" },
       ]
 
       logConfiguration = {
