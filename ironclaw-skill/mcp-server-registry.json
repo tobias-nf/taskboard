@@ -1,9 +1,0 @@
-{
-  "name": "taskboard",
-  "display_name": "Taskboard",
-  "kind": "mcp_server",
-  "description": "Agent task management — create, update, and track tasks with subtasks, tags, activity, and cross-system references",
-  "keywords": ["tasks", "management", "agents", "subtasks", "activity"],
-  "url": "https://taskboard.commitment-tracker-aiops-sandbox.site/mcp/sse",
-  "auth": "api_key"
-}
