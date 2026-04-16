@@ -17,7 +17,7 @@ import (
 
 func TestMountServesDocsAndOpenAPISpec(t *testing.T) {
 	router := chi.NewRouter()
-	Mount(router, nil, nil, middleware.NewRateLimiter(1, time.Minute), nil)
+	Mount(router, nil, nil, middleware.NewRateLimiter(1, time.Minute), nil, nil)
 
 	docsReq := httptest.NewRequest(http.MethodGet, "/docs", nil)
 	docsRec := httptest.NewRecorder()
