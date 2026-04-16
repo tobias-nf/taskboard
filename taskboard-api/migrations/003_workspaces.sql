@@ -1,0 +1,2 @@
+-- Legacy workspace migration — now a no-op.
+-- Workspaces were removed in migration 005_visibility_model.sql.

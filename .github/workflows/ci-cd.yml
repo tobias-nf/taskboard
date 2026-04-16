@@ -1,0 +1,144 @@
+name: CI/CD
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ci-cd.yml"
+      - "taskboard-api/**"
+      - "taskboard-app/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ci-cd.yml"
+      - "taskboard-api/**"
+      - "taskboard-app/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-tests:
+    name: API Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: taskboard-api/go.mod
+
+      - name: Run API tests
+        working-directory: taskboard-api
+        run: go test ./...
+
+  build-and-push:
+    name: Build And Push Images
+    if: github.event_name != 'pull_request'
+    needs: api-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: eu-central-1
+      AWS_ROLE_TO_ASSUME: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+      TASKBOARD_DOMAIN: taskboard.commitment-tracker-aiops-sandbox.site
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate AWS role configuration
+        run: |
+          if [ -z "${AWS_ROLE_TO_ASSUME}" ]; then
+            echo "Repository variable AWS_GITHUB_ACTIONS_ROLE_ARN is required for deploy jobs."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push images
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          short_tag="${IMAGE_TAG::12}"
+
+          build_and_push() {
+            local repository="$1"
+            local context="$2"
+            shift 2
+
+            docker build --platform linux/amd64 "$@" \
+              -t "${REGISTRY}/${repository}:${short_tag}" \
+              -t "${REGISTRY}/${repository}:latest" \
+              "${context}"
+
+            docker push "${REGISTRY}/${repository}:${short_tag}"
+            docker push "${REGISTRY}/${repository}:latest"
+          }
+
+          build_and_push "taskboard/api" "taskboard-api"
+          build_and_push \
+            "taskboard/dashboard" \
+            "taskboard-app" \
+            --build-arg "NEXT_PUBLIC_TASKBOARD_API_URL=https://${TASKBOARD_DOMAIN}/api/v1"
+  deploy:
+    name: Deploy To ECS
+    if: github.event_name != 'pull_request'
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: eu-central-1
+      AWS_ROLE_TO_ASSUME: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+      ECS_CLUSTER: taskboard-prod-cluster
+      ECS_SERVICES: taskboard-prod-api taskboard-prod-dashboard
+
+    steps:
+      - name: Validate AWS role configuration
+        run: |
+          if [ -z "${AWS_ROLE_TO_ASSUME}" ]; then
+            echo "Repository variable AWS_GITHUB_ACTIONS_ROLE_ARN is required for deploy jobs."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Force ECS deployments
+        run: |
+          set -euo pipefail
+          for service in ${ECS_SERVICES}; do
+            aws ecs update-service \
+              --cluster "${ECS_CLUSTER}" \
+              --service "${service}" \
+              --force-new-deployment
+          done
+
+      - name: Wait for ECS services to stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER}" \
+            --services ${ECS_SERVICES}

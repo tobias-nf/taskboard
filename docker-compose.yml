@@ -1,0 +1,102 @@
+name: workflow-agentic-native-local
+
+services:
+  taskboard-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: taskboard
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "15432:5432"
+    volumes:
+      - taskboard-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d taskboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - taskboard-network
+
+  taskboard-minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: hive
+      MINIO_ROOT_PASSWORD: hivesecret
+    ports:
+      - "19000:9000"
+      - "19001:9001"
+    volumes:
+      - taskboard-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - taskboard-network
+
+  taskboard-api:
+    build: ./taskboard-api
+    restart: unless-stopped
+    environment:
+      PORT: "4000"
+      DATABASE_URL: postgres://postgres:dev@taskboard-db:5432/taskboard?sslmode=disable
+      CORS_ORIGIN: "*"
+      TASKBOARD_ADMIN_API_KEY: ${TASKBOARD_ADMIN_API_KEY}
+      S3_ENDPOINT: taskboard-minio:9000
+      S3_ACCESS_KEY: hive
+      S3_SECRET_KEY: hivesecret
+      S3_BUCKET: taskboard-attachments
+      S3_USE_SSL: "false"
+      # Google OAuth
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: http://localhost:4000/auth/google/callback
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-me}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:4001/app}
+      ALLOWED_EMAIL_DOMAIN: near.foundation
+      DEV_MODE: "true"
+    ports:
+      - "4000:4000"
+    depends_on:
+      taskboard-db:
+        condition: service_healthy
+      taskboard-minio:
+        condition: service_healthy
+    networks:
+      - taskboard-network
+
+  taskboard-app:
+    build:
+      context: ./taskboard-app
+      args:
+        NEXT_PUBLIC_TASKBOARD_API_URL: http://localhost:4000/api/v1
+        NEXT_PUBLIC_TASKBOARD_AUTH_URL: http://localhost:4000/auth
+        NEXT_PUBLIC_DEV_MODE: "true"
+    restart: unless-stopped
+    environment:
+      PORT: "4001"
+      NEXT_PUBLIC_TASKBOARD_API_URL: http://localhost:4000/api/v1
+      NEXT_PUBLIC_TASKBOARD_AUTH_URL: http://localhost:4000/auth
+      NEXT_PUBLIC_DEV_MODE: "true"
+    ports:
+      - "4001:4001"
+    depends_on:
+      - taskboard-api
+    networks:
+      - taskboard-network
+
+volumes:
+  taskboard-pgdata:
+    name: workflow-agentic-native-local-pgdata
+  taskboard-minio-data:
+    name: workflow-agentic-native-local-minio-data
+
+networks:
+  taskboard-network:
+    name: workflow-agentic-native-local-network

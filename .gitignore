@@ -1,0 +1,63 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# SQLite
+data/db/*.db
+data/db/*.db-wal
+data/db/*.db-shm
+
+# Temp files
+data/tmp/
+
+# Python
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# Node
+node_modules/
+*.tsbuildinfo
+
+# Rust
+**/target/
+
+# Go
+*.exe
+*.test
+*.out
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docker
+docker-compose.override.yml
+
+**/.next/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*.tfplan
+tfplan
+crash.log
+
+**/.cache/go-build
+**/.cache/gomod

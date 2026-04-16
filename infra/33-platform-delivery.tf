@@ -1,0 +1,99 @@
+locals {
+  github_actions_enabled = trimspace(var.github_actions_repository) != ""
+}
+
+resource "aws_iam_openid_connect_provider" "github_actions" {
+  count = local.github_actions_enabled ? 1 : 0
+
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list = ["sts.amazonaws.com"]
+
+  tags = {
+    Name = "${local.name_prefix}-github-actions-oidc"
+  }
+}
+
+data "aws_iam_policy_document" "github_actions_assume_role" {
+  count = local.github_actions_enabled ? 1 : 0
+
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github_actions[0].arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values = [
+        "repo:${var.github_actions_repository}:ref:refs/heads/${var.github_actions_deploy_branch}",
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_actions_deploy" {
+  count = local.github_actions_enabled ? 1 : 0
+
+  name               = "${local.name_prefix}-github-actions-deploy"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_assume_role[0].json
+
+  tags = {
+    Name = "${local.name_prefix}-github-actions-deploy"
+  }
+}
+
+data "aws_iam_policy_document" "github_actions_deploy" {
+  count = local.github_actions_enabled ? 1 : 0
+
+  statement {
+    sid       = "EcrLogin"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "EcrPush"
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:CompleteLayerUpload",
+      "ecr:InitiateLayerUpload",
+      "ecr:PutImage",
+      "ecr:UploadLayerPart",
+    ]
+    resources = [
+      aws_ecr_repository.api.arn,
+      aws_ecr_repository.dashboard.arn,
+    ]
+  }
+
+  statement {
+    sid    = "EcsDeploy"
+    effect = "Allow"
+    actions = [
+      "ecs:DescribeServices",
+      "ecs:UpdateService",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions_deploy" {
+  count = local.github_actions_enabled ? 1 : 0
+
+  name   = "github-actions-deploy"
+  role   = aws_iam_role.github_actions_deploy[0].id
+  policy = data.aws_iam_policy_document.github_actions_deploy[0].json
+}

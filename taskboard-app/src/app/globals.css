@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #ffffff;
+  --bg-secondary: #F7F8FA;
+  --bg-tertiary: #F3F4F6;
+  --surface: #ffffff;
+  --border: #E5E7EB;
+  --border-hover: #D1D5DB;
+  --text: #111827;
+  --text-muted: #4B5563;
+  --text-faint: #9CA3AF;
+  --text-tertiary: #9CA3AF;
+  --accent: #00EC97;
+  --accent-hover: #00D68A;
+  --accent-text: #059669;
+}
+
+html {
+  scroll-behavior: smooth;
+}

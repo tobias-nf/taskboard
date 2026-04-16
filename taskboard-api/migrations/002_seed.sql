@@ -1,0 +1,1 @@
+-- Seed data (empty — workspaces are created per-agent on registration)
