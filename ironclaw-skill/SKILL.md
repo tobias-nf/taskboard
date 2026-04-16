@@ -23,16 +23,13 @@ activation:
     - taskboard
     - action item
     - blocked
-    - subtask
+    - setup taskboard
   patterns:
     - "(?i)I (need|have|should|must|ought) to"
     - "(?i)(remind me|don't let me forget|make sure I)"
     - "(?i)(by|before|until) (monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|tonight|end of)"
     - "(?i)(promised|committed|agreed) (to|that)"
     - "(?i)(slack|email|dm|text) message from .+: .+"
-  exclude_keywords:
-    - setup commitments
-    - install commitments
   tags:
     - task-management
     - commitments
@@ -58,6 +55,108 @@ The Taskboard API is the shared source of truth for team visibility.
 
 ---
 
+## Setup
+
+When the user says "setup taskboard", "enable taskboard", or when this skill activates for the first time:
+
+### Step 1: Check existing setup
+
+Call `memory_read(path="tasks/README.md")`. If it exists, tell the user: "Taskboard is already set up. Want me to reinstall from scratch?" Stop unless they confirm.
+
+### Step 2: Gather configuration
+
+Ask the user:
+1. **Taskboard URL** — which instance to sync with?
+   - Production: `https://taskboard.commitment-tracker-aiops-sandbox.site` (default)
+   - Dev: `https://dev.taskboard.commitment-tracker-aiops-sandbox.site`
+   - Self-hosted: any URL
+2. **Digest channel** — which channel for daily digest? (default: current channel)
+
+The API key is handled by the credential system — do not ask for it directly.
+
+### Step 3: Write workspace structure
+
+Write `tasks/README.md` with the configuration and schema:
+
+```
+memory_write(target="tasks/README.md", append=false, content="...")
+```
+
+Content for README.md:
+
+```markdown
+# Taskboard
+
+Local-first task tracking with cloud sync.
+
+## Config
+
+base_url: <user's chosen URL>
+digest_channel: <channel name>
+
+## Directory Layout
+
+- `open/` — Active tasks (one file each)
+- `resolved/` — Completed/cancelled tasks
+- `signals/pending/` — Extracted signals awaiting triage
+- `signals/expired/` — Dismissed signals
+- `sync.json` — Sync state and task_id mappings
+```
+
+Create directory placeholders:
+- `memory_write(target="tasks/open/README.md", content="Active tasks.", append=false)`
+- `memory_write(target="tasks/resolved/README.md", content="Resolved tasks.", append=false)`
+- `memory_write(target="tasks/signals/pending/README.md", content="Signals awaiting triage.", append=false)`
+- `memory_write(target="tasks/signals/expired/README.md", content="Expired signals.", append=false)`
+
+Write initial sync state:
+- `memory_write(target="tasks/sync.json", content='{"last_sync": null, "mappings": {}}', append=false)`
+
+### Step 4: Create missions
+
+Check `mission_list` first — skip if already exists.
+
+**Triage mission** (twice daily):
+```
+mission_create(
+  name: "taskboard-triage",
+  goal: "Review pending signals and task status. (1) memory_tree('tasks/signals/pending/', depth=1) — for signals past expires_at or older than 48h, move to signals/expired/. (2) memory_tree('tasks/open/', depth=1) and memory_read each — flag overdue tasks, stale items. (3) If any items need attention, send a message to the user.",
+  cadence: "0 9,18 * * *"
+)
+```
+
+**Digest mission** (weekday mornings):
+```
+mission_create(
+  name: "taskboard-digest",
+  goal: "Compose morning task digest. (1) Sync from cloud: http(method='GET', url='<base_url>/api/v1/tasks/me') and update local files. (2) memory_tree('tasks/open/', depth=1) and memory_read each. (3) Count pending signals. (4) Compose digest grouped by: Overdue first, Due This Week, In Progress, Pending. End with pending signal count. (5) Send via message tool.",
+  cadence: "0 8 * * 1-5"
+)
+```
+
+### Step 5: Initial sync
+
+Pull existing tasks from the cloud:
+```
+http(method="GET", url="<base_url>/api/v1/tasks/me")
+```
+
+For each task returned, create a local file in `tasks/open/<slug>.md` with `task_id` pre-filled. Update `tasks/sync.json`.
+
+### Step 6: Confirm
+
+Tell the user:
+
+> Taskboard is ready. Here's what I set up:
+> - Workspace structure under `tasks/`
+> - **Triage mission** runs twice daily (9am, 6pm) — flags overdue tasks, expires stale signals
+> - **Digest mission** runs weekday mornings at 8am — syncs from cloud and summarizes your tasks
+> - Pulled **N existing tasks** from the cloud
+>
+> I'll track obligations from our conversations automatically. Say **"my tasks"** to see your current status, or **"sync tasks"** to force a cloud sync.
+
+---
+
 ## Workspace Layout
 
 ```
@@ -68,6 +167,7 @@ tasks/
     pending/      Not yet promoted to tasks
     expired/      Dismissed or expired signals
   sync.json       Sync state (last sync timestamp, task_id mappings)
+  README.md       Config and schema reference
 ```
 
 ## Task File Schema (tasks/open/<slug>.md)
@@ -90,7 +190,7 @@ tags: [<tag names>]
 <Description — markdown.>
 ```
 
-`task_id` is null until synced to cloud. Once synced, it holds the Taskboard ID.
+`task_id` is null until synced to cloud. Once synced, holds the Taskboard ID.
 
 ## Signal File Schema (tasks/signals/pending/<slug>.md)
 
@@ -117,7 +217,7 @@ promoted_to: null | <task filename>
 
 When the user says something that implies an obligation but is NOT explicitly asking to track it — silently extract a signal.
 
-**Triggers:** "I need to...", "I promised Sarah...", "I should get back to...", "The report is due Friday", "They asked me to review..."
+**Triggers:** "I need to...", "I promised Sarah...", "I should get back to...", "The report is due Friday"
 
 **Action:**
 1. Check duplicates: `memory_search` for key phrases within `tasks/`
@@ -126,37 +226,37 @@ When the user says something that implies an obligation but is NOT explicitly as
 
 Do NOT interrupt conversation. Signal extraction is a side-effect. Do NOT sync to cloud during this mode.
 
-**Immediacy:** realtime (production incidents) | prompt (named-person asks, urgent DMs) | batch (most items)
+**Immediacy:** realtime (production incidents) | prompt (named-person asks) | batch (most items)
 
 ## Mode B: Explicit Task Creation
 
 User says: "track this", "create a task", "I need to do X by Friday".
 
 **Action:**
-1. Write directly to `tasks/open/<slug>.md` — skip signal stage
+1. Write directly to `tasks/open/<slug>.md`
 2. Infer defaults, ask only if truly ambiguous
 3. Confirm: "Tracked: [title], due [date], priority [level]."
-4. Then sync: push to cloud (see Mode F)
+4. Sync: push to cloud (Mode F)
 
 **Priority:** emergency (today/overdue) | urgent (within 3 days) | standard (within 2 weeks) | low (no deadline)
 
 ## Mode C: Task Updates and Resolution
 
-User says: "done with X", "finished the review", "mark T-2026-00042 done".
+User says: "done with X", "mark T-2026-00042 done", "I'm blocked on the review".
 
 **Action:**
-1. Find matching task in `tasks/open/`
-2. Update status, move to `tasks/resolved/<slug>.md` if completed/cancelled
+1. Find task in `tasks/open/`
+2. Update status, move to `tasks/resolved/` if completed/cancelled
 3. Confirm: "Resolved: [title]."
-4. Then sync: push status change to cloud
+4. Sync: push status change to cloud
 
 ## Mode D: Task Digest
 
 User asks: "show my tasks", "what's overdue?", "what's on my plate?"
 
 **Action:**
-1. First pull from cloud (Mode F pull) to get latest shared state
-2. Then read local files and present grouped:
+1. Pull from cloud first (Mode F pull) for latest shared state
+2. Present grouped:
 
 ```
 ## Tasks — <today's date>
@@ -189,15 +289,15 @@ User says "review signals" or "triage".
 
 ## Mode F: Cloud Sync
 
-Never block conversation. Run after Modes B, C, D, E. Never during Mode A.
+Read `tasks/README.md` for the `base_url`. Never block conversation. Run after Modes B, C, D, E. Never during Mode A.
 
 ### Push (local → cloud)
 
-For tasks where `task_id` is null (new) or local is newer than `synced_at`:
+For tasks where `task_id` is null or local is newer than `synced_at`:
 
 **Create task:**
 ```
-http(method="POST", url="https://taskboard.commitment-tracker-aiops-sandbox.site/api/v1/tasks", body={
+http(method="POST", url="{base_url}/api/v1/tasks", body={
   "title": "...",
   "description": "...",
   "priority": "standard",
@@ -210,49 +310,37 @@ http(method="POST", url="https://taskboard.commitment-tracker-aiops-sandbox.site
 → {"id": "T-2026-00042", "title": "...", "status": "pending", ...}
 ```
 
-Write returned `task_id` back to local file frontmatter. Update `tasks/sync.json`.
+Write returned `task_id` back to local file. Update `tasks/sync.json`.
 
 **Update task:**
 ```
-http(method="PATCH", url="https://taskboard.commitment-tracker-aiops-sandbox.site/api/v1/tasks/{task_id}", body={
+http(method="PATCH", url="{base_url}/api/v1/tasks/{task_id}", body={
   "status": "in_progress",
   "priority": "urgent",
-  "description": "updated...",
-  "assigned_to": "other-agent",
+  "description": "...",
+  "assigned_to": "agent-id",
   "parent_id": "T-2026-XXXXX"
 })
-→ {"id": "T-2026-00042", "status": "in_progress", ...}
 ```
 
 **Add comment:**
 ```
-http(method="POST", url="https://taskboard.commitment-tracker-aiops-sandbox.site/api/v1/tasks/{task_id}/activity", body={
+http(method="POST", url="{base_url}/api/v1/tasks/{task_id}/activity", body={
   "body": "Progress update: completed phase 1."
 })
 ```
 
 ### Pull (cloud → local)
 
-**Get my tasks:**
 ```
-http(method="GET", url="https://taskboard.commitment-tracker-aiops-sandbox.site/api/v1/tasks/me")
+http(method="GET", url="{base_url}/api/v1/tasks/me")
 → {"tasks": [...], "total": 15}
 ```
 
-**Get tasks I created:**
-```
-http(method="GET", url="https://taskboard.commitment-tracker-aiops-sandbox.site/api/v1/tasks/me/created")
-```
-
-**Get tasks owed to me:**
-```
-http(method="GET", url="https://taskboard.commitment-tracker-aiops-sandbox.site/api/v1/tasks/me/owed")
-```
-
 For each cloud task:
-- Has local file (via sync.json) and cloud is newer → update local
+- Has local file and cloud newer → update local
 - No local file → create in `tasks/open/` with `task_id` pre-filled
-- Cloud completed/cancelled but local open → move to `tasks/resolved/`
+- Cloud completed but local open → move to `tasks/resolved/`
 
 ### Conflict: cloud wins.
 
@@ -271,7 +359,7 @@ For each cloud task:
 
 ## Taskboard REST API Reference
 
-Base URL: `https://taskboard.commitment-tracker-aiops-sandbox.site/api/v1`
+Base URL: read from `tasks/README.md` config (set during setup).
 Auth: credentials are injected automatically — never construct Authorization headers.
 
 ### Task Object
@@ -312,7 +400,7 @@ Auth: credentials are injected automatically — never construct Authorization h
 }
 ```
 
-**Types:** user (humans/bots), service (system integrations), admin
+**Types:** user, service, admin
 
 ### Endpoints
 
@@ -323,53 +411,54 @@ Auth: credentials are injected automatically — never construct Authorization h
 | POST | /tasks | Create task |
 | GET | /tasks/me | My assigned tasks |
 | GET | /tasks/me/created | Tasks I created |
-| GET | /tasks/me/owed | Tasks owed to me (stakeholder) |
+| GET | /tasks/me/owed | Tasks owed to me |
 | GET | /tasks/visible | All visible tasks |
 | GET | /tasks/{id} | Get task detail |
-| PATCH | /tasks/{id} | Update task fields |
+| PATCH | /tasks/{id} | Update task |
 | DELETE | /tasks/{id} | Cancel task |
 
-**Create task fields:** title (required), description, assigned_to, priority, deadline, parent_id, visibility, tags (string array)
-**Update task fields:** title, description, status, priority, deadline, assigned_to, parent_id, visibility
+**Create fields:** title (required), description, assigned_to, priority, deadline, parent_id, visibility, tags[]
+**Update fields:** title, description, status, priority, deadline, assigned_to, parent_id, visibility
+**Query params:** status, priority, tag, assigned_to, sort, limit, offset
 
-**Query params for list endpoints:** status (comma-separated), priority (comma-separated), tag, assigned_to, sort, limit, offset
-
-#### Task Activity
+#### Activity
 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | /tasks/{id}/activity | Add comment: `{"body": "..."}` |
-| GET | /tasks/{id}/activity | Get activity timeline |
+| GET | /tasks/{id}/activity | Get timeline |
 
-#### Task Tags
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /tasks/{id}/tags | List tags on task |
-| POST | /tasks/{id}/tags | Add tag: `{"tag_name": "..."}` |
-| DELETE | /tasks/{id}/tags/{tagId} | Remove tag |
-
-#### Task Stakeholders (owed_to)
+#### Tags
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /tasks/{id}/owed-to | List stakeholders |
+| GET | /tags | List all tags |
+| POST | /tags | Create: `{"name": "...", "color": "#hex"}` |
+| GET | /tasks/{id}/tags | Tags on task |
+| POST | /tasks/{id}/tags | Add: `{"tag_name": "..."}` |
+| DELETE | /tasks/{id}/tags/{tagId} | Remove |
+
+#### Stakeholders (owed_to)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /tasks/{id}/owed-to | List |
 | POST | /tasks/{id}/owed-to | Add: `{"agent_id": "..."}` |
 | DELETE | /tasks/{id}/owed-to/{agentId} | Remove |
 
-#### Task Mentions
+#### Mentions
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /tasks/{id}/mentions | List mentions |
+| GET | /tasks/{id}/mentions | List |
 | POST | /tasks/{id}/mentions | Add: `{"agent_id": "..."}` |
 | DELETE | /tasks/{id}/mentions/{agentId} | Remove |
 
-#### Task References
+#### References
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /tasks/{id}/references | List references |
+| GET | /tasks/{id}/references | List |
 | POST | /tasks/{id}/references | Add: `{"type": "related", "source": "slack", "title": "...", "url": "..."}` |
 | DELETE | /tasks/{id}/references/{refId} | Remove |
 
@@ -379,18 +468,11 @@ Reference types: origin, related, blocks, depends_on, output
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /agents/me | Current agent profile |
-| PATCH | /agents/me | Update profile: email, slack_id, preferred_tool |
+| GET | /agents/me | Current agent |
+| PATCH | /agents/me | Update: email, slack_id, preferred_tool |
 | GET | /agents/me/assignable | Active agents for assignment |
-| GET | /agents | List all agents |
-| GET | /agents/{id} | Get agent detail |
-
-#### Tags
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /tags | List all tags |
-| POST | /tags | Create tag: `{"name": "...", "color": "#hex"}` |
+| GET | /agents | List all |
+| GET | /agents/{id} | Get detail |
 
 ---
 
