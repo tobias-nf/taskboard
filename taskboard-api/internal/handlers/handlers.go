@@ -1087,12 +1087,32 @@ func AddActivity(store *db.Store, broker *events.Broker) http.HandlerFunc {
 		}
 
 		id := chi.URLParam(r, "id")
+		var raw map[string]any
+		json.NewDecoder(r.Body).Decode(&raw)
+
 		var a models.TaskActivity
-		json.NewDecoder(r.Body).Decode(&a)
 		a.TaskID = id
 		a.Actor = agent.ID
-		if a.ActorType == "" {
-			a.ActorType = "agent"
+		a.ActorType = "agent"
+
+		// Support both {"type":"commented","summary":"..."} and shorthand {"body":"..."}
+		if body, ok := raw["body"].(string); ok && raw["type"] == nil {
+			a.Type = "commented"
+			a.Summary = &body
+		} else {
+			if t, ok := raw["type"].(string); ok {
+				a.Type = t
+			}
+			if s, ok := raw["summary"].(string); ok {
+				a.Summary = &s
+			}
+			if at, ok := raw["actor_type"].(string); ok {
+				a.ActorType = at
+			}
+		}
+
+		if a.Type == "" {
+			a.Type = "commented"
 		}
 		if a.Summary != nil {
 			cleaned := stripHTMLTags(*a.Summary)
