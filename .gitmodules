@@ -1,0 +1,3 @@
+[submodule "ironclaw-skills"]
+	path = ironclaw-skills
+	url = https://github.com/tobias-nf/ironclaw-skills.git
