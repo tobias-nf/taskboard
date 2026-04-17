@@ -87,6 +87,7 @@ func (s *Server) Mount(r chi.Router) {
 	r.Get("/catalog.json", s.handleCatalog)
 	r.Get("/docs", s.handleDocs)
 	r.Get("/sse", s.handleSSE)
+	r.Post("/sse", s.handleStreamableHTTP) // Streamable HTTP transport
 	r.Post("/messages/{sessionID}", s.handleMessage)
 }
 
@@ -228,6 +229,48 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// handleStreamableHTTP implements the MCP Streamable HTTP transport.
+// Accepts POST with JSON-RPC body, authenticates via Bearer token,
+// and returns the response as JSON. No SSE session needed.
+func (s *Server) handleStreamableHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.authenticator == nil {
+		http.Error(w, "authentication is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	apiKey, ok := bearerToken(r.Header.Get("Authorization"))
+	if !ok {
+		http.Error(w, "Authorization header required", http.StatusUnauthorized)
+		return
+	}
+
+	agent, err := s.authenticator(r.Context(), apiKey)
+	if err != nil {
+		http.Error(w, "Invalid API key", http.StatusUnauthorized)
+		return
+	}
+	if !agent.Active {
+		http.Error(w, "Agent is not active", http.StatusForbidden)
+		return
+	}
+
+	var req jsonRPCRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON-RPC payload", http.StatusBadRequest)
+		return
+	}
+
+	resp := s.handleJSONRPC(r.Context(), agent, req)
+	if resp == nil {
+		// Notifications (no ID) don't get a response
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
